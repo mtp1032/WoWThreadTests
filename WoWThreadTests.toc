@@ -1,0 +1,25 @@
+## Interface: 30400
+##----------------------------------------------
+## Title: WoWThreadTests
+## Notes: Tests of WoWThreads
+## Author: Michael Peterson
+## SavedVariablesPerCharacter:
+## SavedVariables:
+## X-Expansion: Classic WotLK
+## 23 October, 2022
+## Dependencies: WoWThreads
+## OptionalDeps:
+
+
+##---------------------------------------------
+## Test Code
+##---------------------------------------------
+ThreadStats.lua
+ThreadTests1.lua
+ThreadTests2.lua
+ThreadTests3.lua
+ThreadTests4.lua
+ThreadTests5.lua
+CommandLine.lua
+
+
