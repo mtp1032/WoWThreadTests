@@ -26,32 +26,6 @@ local main_h        = nil
 local threadTable   = {}
 local NUM_THREADS   = 100
 
-function test4:getStats()
-    local result = {SUCCESS, EMPTY_STR, EMPTY_STR}
-
-    local t = mgr:getStatsTable()
-
-    -- entry = {
-    --      thread handle, 
-    --      ticks per yield interval, 
-    --      number of times yielded, 
-    --      thread lifetime 
-    -- }
-    for _, entry in ipairs( t ) do
-        local threadId = dispatch:getThreadId( entry[1])
-        local ticksPerInterval  = entry[2]
-        local numYields      = entry[3]
-        local lifeTimeMS        = entry[4] -- this is already in milliseconds
-
-        local timePerTickMS = (1/GetFramerate())*1000
-        local timePerIntervalMS = ticksPerInterval * timePerTickMS  -- milliseconds
-        local timeSuspendedMS = timePerIntervalMS * numYields
-        local perCent = timeSuspendedMS / lifeTimeMS
-
-        local s1 = sprintf("Thread %d: Yield time: %.2f sec, time suspended: %.2f sec, life time %.2f sec, percent suspended %.1f%%\n", threadId, timePerIntervalMS , timeSuspendedMS/1000, lifeTimeMS/1000, perCent*100 )
-        mf:postMsg( s1 )
-    end
-end
 local function threadFunc()
     local result = {SUCCESS, EMPTY_STR, EMPTY_STR}
     local signal = SIG_NONE_PENDING

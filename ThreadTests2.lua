@@ -55,7 +55,7 @@ local function main(...)
     mf:postMsg( sprintf("Creating %d threads.\n", numThreads))
 
     -- Create some threads and insert them into a table, threadTable.
-        local ticks = 50 -- about 1 second
+        local ticks = 4 -- about 1 second
 
         -- Create some threads
     for i = 1, numThreads do 
@@ -96,8 +96,8 @@ end
 -- The main thread creates 
 ----------------------------------------------------------------------
 function test2:runTest()
-    local threads = 10
-    local main_h, result = thread:create( 50, main, threads )
+    local numThreads = 10
+    local main_h, result = thread:create( 50, main, numThreads )
     if not result[1] then mf:postResult( result ) return end
 end
 
