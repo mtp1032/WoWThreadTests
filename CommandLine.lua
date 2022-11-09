@@ -56,7 +56,16 @@ SlashCmdList["WOWTHREADS_COMMANDS"] = function( msg )
     end
 
     if msg == "STATS" then
-        stats:dumpTableEntries()
+        local done = false
+
+        while not done do
+            local entry = stats:getThreadMetrics()
+            if entry ~= nil then
+                stats:printEntry( entry )
+            else
+                done = true
+            end
+        end
     end
     if not isValid then 
         mf:postMsg(sprintf("%s %s not a valid command.", E:prefix(), msg ))
