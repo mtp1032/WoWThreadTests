@@ -49,6 +49,7 @@ local function threadFunc()
     if not result[1] then mf:postResult( result ) return end
     mf:postMsg( sprintf("Thread %d yielded %d times and is exiting.\n", threadId, loopCount  ))
 end
+local main_h = nil
 local function main()
     local result = {SUCCESS, EMPTY_STR, EMPTY_STR}
 
@@ -61,23 +62,45 @@ local function main()
     if not result[1] then mf:postResult( result ) return end
 
     for i = 1, NUM_THREADS do
-        result = thread:sendSignal( threadTable[i], SIG_RETURN )
+        local thread_h = threadTable[i]
+        local state = thread:getExecutionState( thread_h )
         if not result[1] then mf:postResult( result ) return end
+      
+        if state ~= completed then
+            wasSent, result = thread:sendSignal( thread_h, SIG_RETURN )
+            if not wasSent then 
+                if not result[1] then 
+                    mf:postResult( result ) 
+                    return 
+                end
+            end
         
-        result = thread:yield()
-        if not result[1] then mf:postResult( result ) return end
-    end
-    local before = debugprofilestop()
-    result = thread:yield()
-    if not result[1] then mf:postResult( result ) return end
-    local elapsedTime = debugprofilestop() - before
+            result = thread:yield()
+            if not result[1] then mf:postResult( result ) return end
+        else
+            local threadId, result = thread:getId( thread_h )
+            if not result[1] then mf:postResult( result ) return end
 
+            mf:postMsg( sprintf("     *** Thread %d has already completed ***\n", threadId ))
+        end
+    end
     mf:postMsg( sprintf("\n ***** test4 COMPLETE *****\n"))
+
+    local done = false
+    local threadId, result = thread:getId( main_h )
+    E:dbgPrint( sprintf("Thread %d (main_h) entering while-loop.", threadId ))
+    while not done do
+        thread:yield()
+        local signal, sender_h = thread:getSignal()
+        if signal == SIG_RETURN then done = true end
+        if signal == SIG_WAKEUP then done = true end
+    end
 end
 function test4:runTest()
     local result = {SUCCESS, EMPTY_STR, EMPTY_STR}
+    local done = false
 
     local mainTicks = 60    -- about 1 second
-    local main_h, result = thread:create( mainTicks, main )
+    main_h, result = thread:create( mainTicks, main )
     if not result[1] then mf:postResult( result ) return end
 end

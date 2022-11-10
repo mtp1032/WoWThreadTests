@@ -19,8 +19,10 @@ local SIG_WAKEUP        = dispatch.SIG_WAKEUP  -- You've returned prematurely fr
 local SIG_RETURN        = dispatch.SIG_RETURN  -- cleanup state and return from the action routine
 local SIG_NONE_PENDING  = dispatch.SIG_NONE_PENDING    -- default value. Means no signal is pending
 
--- entry = {threadId, ticksPerYield, yieldCount, measuredTimeSuspended, lifeTime }
+-- returns a table of metrics where each entry = 
+--		{threadId, ticksPerYield, yieldCount, measuredTimeSuspended, lifeTime }
 function stats:getThreadMetrics( thread_h )
+	E:dbgPrint()
 	return mgr:getThreadMetrics( thread_h )
 end
 function stats:printEntry( e )

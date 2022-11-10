@@ -72,8 +72,8 @@ local function main(...)
     for i, thread_h in ipairs( threadTable ) do
 
         -- Send a signal and then yield the processor.
-        result = thread:sendSignal( thread_h, SIG_RETURN )
-        if not result[1] then mf:postResult( result ) return end
+        wasSent, result = thread:sendSignal( thread_h, SIG_RETURN )
+        if not wasSent then mf:postResult( result ) return end
 
         result = thread:yield()
         if not result[1] then mf:postResult(result) return end

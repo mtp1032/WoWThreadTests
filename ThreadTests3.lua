@@ -59,8 +59,8 @@ local function main()
     if not result[1] then mf:postResult( result ) return end
 
     for i = 1, NUM_THREADS do
-        result = thread:sendSignal( threadTable[i], SIG_RETURN )
-        if not result[1] then mf:postResult( result ) return end
+        wasSent, result = thread:sendSignal( threadTable[i], SIG_RETURN )
+        if not wasSent then mf:postResult( result ) return end
         
         result = thread:yield()
         if not result[1] then mf:postResult( result ) return end

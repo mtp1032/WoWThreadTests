@@ -23,24 +23,24 @@ local function childProc( threadName )
     -- mf:postMsg( sprintf("%s Entered %s's function.\n", E:prefix(), threadName ))
     local result = {SUCCESS, EMPTY_STR, EMPTY_STR}
     local thread_h = nil
+    local wasSent = false
 
     local signal = SIG_NONE_PENDING
-    local sender_h = nil
-    local senderId = nil
 
     result = thread:yield()
     if not result[1] then mf:postResult(result) return end
 
     while signal ~= SIG_RETURN do
         signal, sender_h = thread:getSignal()
-        
         result = thread:yield()
         if not result[1] then mf:postResult( result ) return end
     end
 
-    -- return to sender
-    result = thread:sendSignal( sender_h, SIG_RETURN )
-    if not result[1] then mf:postResult(result) return end
+    -- return to sender if sender was non-threaded.
+    if sender_h ~= EMPTY_STR then
+        wasSent, result = thread:sendSignal( sender_h, SIG_RETURN )
+        if not result[1] then mf:postResult(result) return end
+    end
 
     result = thread:yield()
     if not result[1] then mf:postResult(result) return end
@@ -51,6 +51,8 @@ local function monitor(...)
     local signal = SIG_NONE_PENDING
     local monitorId = nil
     local threadName = ...
+    local sender_h = nil
+    local senderId = nil
 
     mf:postMsg( sprintf("%s Entered %s's function.\n", E:prefix(), threadName ))
     monitor_h, result = thread:self()
@@ -68,8 +70,8 @@ local function monitor(...)
     result = thread:yield()
     if not result[1] then mf:postResult(result) return end
     
-    result = thread:sendSignal( child_h, SIG_RETURN )
-    if not result[1] then mf:postResult(result) return end
+    wasSent, result = thread:sendSignal( child_h, SIG_RETURN )
+    if not wasSent then mf:postResult(result) return end
     
     -- Now, loop until we get a signal from the child
     mf:postMsg( sprintf("%s Monitor thread created\n", E:prefix() ) )
@@ -78,22 +80,25 @@ local function monitor(...)
         if not result[1] then mf:postResult(result) return end
               
         signal, sender_h  = thread:getSignal() 
-        local threadsAreEqual = thread:areEqual( sender_h, child_h )
-        if not threadsAreEqual then  -- ignore the signal
-            signal = SIG_NONE_PENDING
+        if sender_h ~= EMPTY_STR then
+            local threadsAreEqual = thread:areEqual( sender_h, child_h )
+            if not threadsAreEqual then  -- ignore the signal
+                signal = SIG_NONE_PENDING
+            end
+            senderId, result = thread:getId( sender_h )
+            if not result[1] then mf:postResult( result ) return end
         end
-    end
     
-    mf:postMsg( sprintf(" %s Received SIG_RETURN from thread %d.\n", E:prefix(), Id )) 
-    senderId, result = thread:getId( sender_h )
-    if not result[1] then mf:postResult( result ) return end
+        mf:postMsg( sprintf(" %s Received SIG_RETURN from thread %d.\n", E:prefix(), senderId )) 
+        if not result[1] then mf:postResult( result ) return end
      
-    local sigName, result = thread:getSigName( signal )
-    if not result[1] then mf:postResult( result ) return end
+        local sigName, result = thread:getSigName( signal )
+        if not result[1] then mf:postResult( result ) return end
 
-    mf:postMsg(sprintf("%s Received %s signal from thread %d\n", E:prefix(), sigName, senderId ))
-    local s =  sprintf("\n%s %s completed.\n", E:prefix(), threadName )
-    mf:postMsg( s )
+        mf:postMsg(sprintf("%s Received %s signal from thread %d\n", E:prefix(), sigName, senderId ))
+        local s =  sprintf("\n%s %s completed.\n", E:prefix(), threadName )
+        mf:postMsg( s )
+    end
 end
 function test1:runTest()
     local result = {SUCCESS, EMPTY_STR, EMPTY_STR} 
