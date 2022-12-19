@@ -1,106 +1,129 @@
 --------------------------------------------------------------------------------------
 -- FILE NAME:       ThreadTests4.lua 
 -- AUTHOR:          Michael Peterson
--- ORIGINAL DATE:   11 October, 2022
-local _, WoWThreads = ...
-WoWThreads.ThreadTests4 = {}
-test4 = WoWThreads.ThreadTests4
+-- ORIGINAL DATE:   10 October, 2022
+local _, WoWThreadTests = ...
+WoWThreadTests.ThreadTests4 = {}
+test4 = WoWThreadTests.ThreadTests4 
 
---------------------------------------------------------------------------------------
---      This is the public interface to WoWThreads.                                 --
---------------------------------------------------------------------------------------
-local L = WoWThreads.L
+local sprintf = _G.string.format 
 local E = threadErrors
-local U = threadUtils
-
+local U = utils
 local sprintf = _G.string.format
 
-local EMPTY_STR = core.EMPTY_STR
+local DEBUG 	= threadErrors.DEBUG
+local EMPTY_STR = threadErrors.EMPTY_STR
 local SUCCESS   = threadErrors.SUCCESS
 
-local SIG_WAKEUP        = thread.SIG_WAKEUP
-local SIG_RETURN        = thread.SIG_RETURN
-local SIG_NONE_PENDING  = thread.SIG_NONE_PENDING
+-- NOTE:
+-- SIG_ALERT - requires recipient to return from yield() and exit while loop.
+-- SIG_TERMINATE - requires thread to cleanup state and complete.
+local SIG_ALERT            = thread.SIG_ALERT          -- You've returned prematurely from a yield. Do what's appropriate.
+local SIG_JOIN_DATA_READY   = thread.SIG_JOIN_DATA_READY
+local SIG_TERMINATE         = thread.SIG_TERMINATE
+local SIG_METRICS           = thread.SIG_METRICS
+local SIG_NONE_PENDING      = thread.SIG_NONE_PENDING    -- default value. Means the handle's signal queue is empty
 
+local NUM_THREADS   = 10
+local threadHandles = {}
+local producer_h    = nil
 local main_h        = nil
-local threadTable   = {}
-local NUM_THREADS   = 100
 
-local function threadFunc()
+function test4:terminate()
     local result = {SUCCESS, EMPTY_STR, EMPTY_STR}
-    local signal = SIG_NONE_PENDING
-    local sender_h = nil
-    local loopCount = 1
 
-    while loopCount < 101 do
-        result = thread:yield()
-        if not result[1] then mf:postResult( result ) return end
+    local state, result = thread:getState( main_h )
+    if not result[1] then mf:postResult(result) return end
 
-        loopCount = loopCount + 1
+    if state == "completed" then -- thread cannot be sent.
+        mf:postMsg( "Cannot signal main_h. Thread has completed.")
+        return
     end
-
-    local thread_h, result = thread:self()
+    result = thread:sendSignal( main_h, SIG_TERMINATE)
     if not result[1] then mf:postResult( result ) return end
-
-    local threadId, result = thread:getId( thread_h )
-    if not result[1] then mf:postResult( result ) return end
-
-    local senderId, result = thread:getId( sender_h )
-    if not result[1] then mf:postResult( result ) return end
-    mf:postMsg( sprintf("Thread %d yielded %d times and is exiting.\n", threadId, loopCount  ))
 end
-local main_h = nil
+   
+---------------------------------------------------------------------
+--          CREATES SOME TEST DATA RETURNED TO ALL THREADS
+--          THAT HAVE JOINED WITH THIS THREAD.
+---------------------------------------------------------------------
+local function producerFunc( threadName )
+    local result = {SUCCESS, EMPTY_STR, EMPTY_STR} 
+    local signal = SIG_NONE_PENDING
+
+    -- yield to let the other threads get established in their
+    -- while loops
+    thread:yield()
+
+    -- create some test data, just a string
+    local joinData = sprintf("*** Data %s thread. ***\n", threadName )
+    thread:exit( joinData )
+end
+--------------------------------------------------------------------
+--          JOINS WITH THE PRODUCER THREAD
+-------------------------------------------------------------------
+local function consumerFunc( threadName )
+    local result = {SUCCESS, EMPTY_STR, EMPTY_STR} 
+    local signal = SIG_NONE_PENDING
+
+    -- now we wait. will not return from thread:join() until
+    -- the data is retrieved.
+    mf:postMsg( sprintf("%s calling thread:join().\n", threadName ))
+    local joinData, result = thread:join( producer_h )
+    if not result[1] then mf:postResult(result) return end
+
+    local s = sprintf("\nSUCCESS: Retrieved join data: %s\n", threadName, joinData )
+    mf:postMsg( s )
+end
+----------------------------------------------------------------------------------
+--              CREATES A CONSUMER AND A PRODUCER THREAD
+----------------------------------------------------------------------------------
 local function main()
-    local result = {SUCCESS, EMPTY_STR, EMPTY_STR}
+    local result = {SUCCESS, EMPTY_STR, EMPTY_STR} 
+    local signal = SIG_NONE_PENDING
+    local sender_h = nl
 
-    for i = 1, NUM_THREADS do
-        local yieldTicks = math.random( 20, 40)
-        local thread_h, result = thread:create( yieldTicks, threadFunc )
-        table.insert( threadTable, thread_h )
-    end
-    result = thread:yield()
-    if not result[1] then mf:postResult( result ) return end
+    -- create the producer thread to create some data
+    local clockTicks = 30
+    producer_h, result = thread:create( clockTicks, producerFunc, "Producer thread" )
+    if not result[1] then mf:postResult(result) return end
 
+    -- create a consumer thread retrieve and print the data
+    clockTicks = 60
     for i = 1, NUM_THREADS do
-        local thread_h = threadTable[i]
-        local state = thread:getExecutionState( thread_h )
+        local threadName = sprintf("Consumer[%d]", i )
+        threadHandles[i], result = thread:create( clockTicks, consumerFunc, threadName )
         if not result[1] then mf:postResult( result ) return end
-      
-        if state ~= completed then
-            wasSent, result = thread:sendSignal( thread_h, SIG_RETURN )
-            if not wasSent then 
-                if not result[1] then 
-                    mf:postResult( result ) 
-                    return 
-                end
-            end
-        
-            result = thread:yield()
-            if not result[1] then mf:postResult( result ) return end
-        else
-            local threadId, result = thread:getId( thread_h )
-            if not result[1] then mf:postResult( result ) return end
+    end
 
-            mf:postMsg( sprintf("     *** Thread %d has already completed ***\n", threadId ))
+    -- does not exit while loop until receives
+    -- SIG_TERMINATE
+    local DONE = false
+    while not DONE do
+        thread:yield()
+        signal, sender_h = thread:getSignal()
+        if signal == SIG_TERMINATE then
+            DONE = true
+            mf:postMsg(sprintf("\nMain thread received SIG_TERMINATE signal.\n"))
         end
     end
-    mf:postMsg( sprintf("\n ***** test4 COMPLETE *****\n"))
-
-    local done = false
-    local threadId, result = thread:getId( main_h )
-    E:dbgPrint( sprintf("Thread %d (main_h) entering while-loop.", threadId ))
-    while not done do
-        thread:yield()
-        local signal, sender_h = thread:getSignal()
-        if signal == SIG_RETURN then done = true end
-        if signal == SIG_WAKEUP then done = true end
-    end
+    mf:postMsg(sprintf("main thread complete\n"))
 end
+-----------------------------------------------------------------------
+--              CREATES THE MAIN THREAD
+-----------------------------------------------------------------------
 function test4:runTest()
-    local result = {SUCCESS, EMPTY_STR, EMPTY_STR}
-    local done = false
+    local result = {SUCCESS, EMPTY_STR, EMPTY_STR} 
 
-    local mainTicks = 60    -- about 1 second
-    main_h, result = thread:create( mainTicks, main )
+    mf:postMsg( sprintf("\n*** JOIN/EXIT TESTS ***\n"))
+
+    -- create the main thread with a yield interval of approx 5 seconds.
+    local clockTicks = 300
+    main_h, result = thread:create( clockTicks, main )
     if not result[1] then mf:postResult( result ) return end
+end
+
+local fileName = "ThreadTests4.lua"
+if E:debuggingIsEnabled() then
+	DEFAULT_CHAT_FRAME:AddMessage( sprintf("%s loaded", fileName), 1.0, 1.0, 0.0 )
 end

@@ -18,33 +18,36 @@ local sprintf = _G.string.format
 local EMPTY_STR = core.EMPTY_STR
 local SUCCESS   = threadErrors.SUCCESS
 
-local SIG_WAKEUP        = thread.SIG_WAKEUP
-local SIG_RETURN        = thread.SIG_RETURN
-local SIG_NONE_PENDING  = thread.SIG_NONE_PENDING
+-- NOTE:
+-- SIG_ALERT - requires recipient to return from yield() and exit while loop.
+-- SIG_TERMINATE - requires thread to cleanup state and complete.
+local SIG_ALERT            = thread.SIG_ALERT          -- You've returned prematurely from a yield. Do what's appropriate.
+local SIG_JOIN_DATA_READY   = thread.SIG_JOIN_DATA_READY
+local SIG_TERMINATE         = thread.SIG_TERMINATE
+local SIG_METRICS           = thread.SIG_METRICS
+local SIG_NONE_PENDING      = thread.SIG_NONE_PENDING    -- default value. Means the handle's signal queue is empty
 
 local main_h        = nil
 local threadTable   = {}
-local NUM_THREADS   = 50
+local NUM_THREADS   = 5
 
 local function threadFunc()
     local result = {SUCCESS, EMPTY_STR, EMPTY_STR}
     local signal = SIG_NONE_PENDING
     local sender_h = nil
 
-    while signal ~= SIG_RETURN do
-        result = thread:yield()
+    while signal ~= SIG_ALERT do
+        thread:yield()
         signal, sender_h = thread:getSignal()
     end
 
-    local thread_h, result = thread:self()
-    if not result[1] then mf:postResult( result ) return end
-
+    local thread_h = thread:self()
     local threadId, result = thread:getId( thread_h )
     if not result[1] then mf:postResult( result ) return end
 
     local senderId, result = thread:getId( sender_h )
     if not result[1] then mf:postResult( result ) return end
-    mf:postMsg( sprintf("Thread %d received SIG_RETURN from sender %d and is exiting.\n", threadId, senderId  ))
+    mf:postMsg( sprintf("Thread %d received SIG_ALERT from sender %d and is exiting.\n", threadId, senderId  ))
 end
 local function main()
     local result = {SUCCESS, EMPTY_STR, EMPTY_STR}
@@ -53,22 +56,18 @@ local function main()
         -- local yieldTicks = math.random( 40, 60)
         local yieldTicks = 20
         local thread_h, result = thread:create( yieldTicks, threadFunc )
+        if not result[1] then mf:postResult( result ) return end
+
         table.insert( threadTable, thread_h )
     end
-    result = thread:yield()
-    if not result[1] then mf:postResult( result ) return end
+    thread:yield()
 
     for i = 1, NUM_THREADS do
-        wasSent, result = thread:sendSignal( threadTable[i], SIG_RETURN )
-        if not wasSent then mf:postResult( result ) return end
-        
-        result = thread:yield()
-        if not result[1] then mf:postResult( result ) return end
+        result = thread:sendSignal( threadTable[i], SIG_ALERT )
+        if not result[1] then mf:postResult( result ) return end        
+        thread:yield()
     end
-    local before = debugprofilestop()
-    result = thread:yield()
-    if not result[1] then mf:postResult( result ) return end
-    local elapsedTime = debugprofilestop() - before
+    thread:yield()
 
     mf:postMsg( sprintf("\n ***** TEST3 COMPLETE *****\n"))
 end
@@ -76,6 +75,11 @@ function test3:runTest()
     local result = {SUCCESS, EMPTY_STR, EMPTY_STR}
 
     local mainTicks = 60    -- about 1 second
-    local main_h, result = thread:create( mainTicks, main )
+    local main_h = thread:create( mainTicks, main )
     if not result[1] then mf:postResult( result ) return end
+end
+
+local fileName = "ThreadTests3.lua"
+if E:debuggingIsEnabled() then
+	DEFAULT_CHAT_FRAME:AddMessage( sprintf("%s loaded", fileName), 1.0, 1.0, 0.0 )
 end

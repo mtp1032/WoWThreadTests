@@ -15,36 +15,62 @@ local DEBUG 	= threadErrors.DEBUG
 local EMPTY_STR = threadErrors.EMPTY_STR
 local SUCCESS   = threadErrors.SUCCESS
 
-local SIG_WAKEUP        = dispatch.SIG_WAKEUP  -- You've returned prematurely from a yield. Do what's appropriate.
-local SIG_RETURN        = dispatch.SIG_RETURN  -- cleanup state and return from the action routine
-local SIG_NONE_PENDING  = dispatch.SIG_NONE_PENDING    -- default value. Means no signal is pending
+-- NOTE:
+-- SIG_ALERT - requires recipient to return from yield() and exit while loop.
+-- SIG_TERMINATE - requires thread to cleanup state and complete.
+local SIG_ALERT            = thread.SIG_ALERT          -- You've returned prematurely from a yield. Do what's appropriate.
+local SIG_JOIN_DATA_READY   = thread.SIG_JOIN_DATA_READY
+local SIG_TERMINATE         = thread.SIG_TERMINATE
+local SIG_METRICS           = thread.SIG_METRICS
+local SIG_NONE_PENDING      = thread.SIG_NONE_PENDING    -- default value. Means the handle's signal queue is empty
 
 -- these are test specific globals
-local threadTable = {}
 
+local threadTable = {}
+local count = 0
 function waitLoop()
     local result = {SUCCESS, EMPTY_STR,EMPTY_STR}
     local signal = SIG_NONE_PENDING 
+    local signalName = nil
 
-    while signal ~= SIG_RETURN do
-        result = thread:yield()
-        if not result[1] then mf:postResult(result) return end
+    local threadId, result = thread:getId()
+    if not result[1] then mf:postResult( result ) return end
 
+    -- wait for SIG_ALERT 
+    while signal ~= SIG_ALERT do
+        thread:yield()
         signal, sender_h = thread:getSignal()
-
-        if signal == SIG_RETURN then
-            sigName, result = thread:getSigName( signal )
-           if not result[1] then mf:postResult( result ) return end
-
-           local thread_h, result = thread:self()
-           if not result[1] then mf:postResult( result ) return end
-
-            local threadId, result = thread:getId( thread_h )
-            if not result[1] then mf:postResult( result ) return end
-
-            mf:postMsg(sprintf("Thread %d received %s\n", threadId, sigName ))
-        end
+        signalName, result = thread:getSignalName( signal )
+        if not result[1] then mf:postResult( result ) return end
     end
+    mf:postMsg( sprintf("Thread[%d] received %s\n", threadId, signalName ))
+    
+    signal = SIG_NONE_PENDING
+    while signal ~= SIG_JOIN_DATA_READY do
+        thread:yield()
+        signal, sender_h = thread:getSignal()
+        signalName, result = thread:getSignalName( signal )
+        if not result[1] then mf:postResult( result ) return end
+    end
+    mf:postMsg(sprintf("Thread[%d] received %s\n", threadId, signalName ))
+
+    signal = SIG_NONE_PENDING
+    while signal ~= SIG_ALERT do
+        thread:yield()
+        signal, sender_h = thread:getSignal()
+        signalName, result = thread:getSignalName( signal )
+        if not result[1] then mf:postResult( result ) return end
+    end
+    mf:postMsg(sprintf("Thread[%d] received %s\n", threadId, signalName ))
+
+    signal = SIG_NONE_PENDING
+    while signal ~= SIG_TERMINATE do
+        thread:yield()
+        signal, sender_h = thread:getSignal()
+        signalName, result = thread:getSignalName( signal )
+        if not result[1] then mf:postResult( result ) return end
+    end
+    mf:postMsg(sprintf("Thread[%d] received %s\n", threadId, signalName ))
 end
 
 local function main(...)
@@ -52,10 +78,10 @@ local function main(...)
     local thread_h = nil
     local numThreads = ...
 
-    mf:postMsg( sprintf("Creating %d threads.\n", numThreads))
+    mf:postMsg( sprintf("Creating %d threads.\n", numThreads ))
 
     -- Create some threads and insert them into a table, threadTable.
-        local ticks = 4 -- about 1 second
+        local ticks = 400 -- about 6 seconds
 
         -- Create some threads
     for i = 1, numThreads do 
@@ -66,23 +92,51 @@ local function main(...)
 
     -- Yield to the newly created threads. Let them begin
     -- executing their while loops.
-    result = thread:yield()
-    if not result[1] then mf:postResult(result) return end
-    -- Now, signal the threads for termination
+    thread:yield()
+    for i, thread_h in ipairs( threadTable ) do
+        -- Send a signal and then yield the processor.
+        result = thread:sendSignal( thread_h, SIG_ALERT )
+        if not result[1] then mf:postResult( result ) return end
+        thread:yield()
+    end
+
+    thread:yield()
+    for i, thread_h in ipairs( threadTable ) do
+        -- Send a signal and then yield the processor.
+        result = thread:sendSignal( thread_h, SIG_JOIN_DATA_READY)
+        if not result[1] then mf:postResult( result ) return end
+        thread:yield()
+    end
+
+    thread:yield()
+    for i, thread_h in ipairs( threadTable ) do
+        -- Send a signal and then yield the processor.
+        result = thread:sendSignal( thread_h, SIG_ALERT )
+        if not result[1] then mf:postResult( result ) return end
+        thread:yield()
+    end
+
+    thread:yield()
     for i, thread_h in ipairs( threadTable ) do
 
         -- Send a signal and then yield the processor.
-        wasSent, result = thread:sendSignal( thread_h, SIG_RETURN )
-        if not wasSent then mf:postResult( result ) return end
+        result = thread:sendSignal( thread_h, SIG_TERMINATE)
+        if not result[1] then mf:postResult( result ) return end
+        thread:yield()
+    end
 
-        result = thread:yield()
-        if not result[1] then mf:postResult(result) return end
+
+    local threadId, result = thread:getId()
+    if not result[1] then mf:postResult( result ) return end
+
+    mf:postMsg( sprintf("In TEST2: Thread %d (main_h) waiting for SIG_TERMINATE.", threadId ))
+    signal = SIG_NONE_PENDING
+    while signal ~= SIG_TERMINATE do
+        thread:yield()
+        signal, sender_h = thread:getSignal()
     end
-    -- Now remove the threads from the thread table
-    for i = 1, numThreads do
-        thread_h = table.remove(threadTable, 1)
-    end
-    mf:postMsg("tests2 completed successfully\n")
+
+    mf:postMsg(sprintf("\nTest2 completed successfully\n"))
 end
 ---------------------------------------------------------------------
 --                      TEST 1                                      -
@@ -95,10 +149,18 @@ end
 -- The waitLoop() method creates a single child thread
 -- The main thread creates 
 ----------------------------------------------------------------------
+local NUM_THREADS = 2
+local main_h = nil
+
 function test2:runTest()
-    local numThreads = 10
-    local main_h, result = thread:create( 50, main, numThreads )
+    local result = {SUCCESS, EMPTY_STR,EMPTY_STR}
+
+    main_h, result = thread:create( 50, main, NUM_THREADS )
     if not result[1] then mf:postResult( result ) return end
+end
+function test2:terminate()
+    result = thread:sendSignal( main_h, SIG_TERMINATE )
+   if not result[1] then mf:postResult( result ) return end
 end
 
 local fileName = "ThreadTests2.lua"

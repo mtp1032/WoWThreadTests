@@ -20,6 +20,9 @@ ThreadTests2.lua
 ThreadTests3.lua
 ThreadTests4.lua
 ThreadTests5.lua
+ThreadTests6.lua
+
+## Parent/Child Tests
 CommandLine.lua
 
 
